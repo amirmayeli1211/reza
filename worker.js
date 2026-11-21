@@ -2302,6 +2302,9 @@ function buildTrojanLink(o) {
 }
 
 function clientVariants(cfg, c, host, mainOnly = false) {
+  /* 1101 guard: stopping link generation before the 10ms CPU ceiling. */
+  const _t0 = Date.now();
+  const hasBudget = () => (Date.now() - _t0) < CPU_BUDGET_MS;
   const out = [];
   if (c.enabled === false || clientExpired(c)) return out;
   const fp = cfg.fingerprint || "chrome";
