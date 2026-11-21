@@ -5,7 +5,7 @@
 ║                                                                          ║
 ║  هسته:  VLESS+Trojan over WS | ⚡ Race موازی گیتویها (بدون Handshake   ║
 ║         Error زنجیرهای) | ProxyIP روش قدیمی:443 + رقابت پورت مقصد      ║
-║         DNS کش هوشمند (google/youtube: ۳۰ثانیه) | Early-Data | NAT64    ║
+║         DNS کش هوشمند (google/youtube: ۳۰ثانیه) | Early-Data    ║
 ║         ↑ هسته دست‌نخورده از v12.1 — فقط لایه امنیتی/ساب تغییر کرد      ║
 ║                                                                          ║
 ║  ساب:   توکن تصادفی ۲۵۶بیتی برای هر کلاینت (نه id و نه 00000)         ║
@@ -249,20 +249,11 @@ const SCALE_META = { s:"کوچک", n:"معمولی", l:"بزرگ" };
 const CORNERS = ["sharp","medium","soft"];
 const CORNER_META = { sharp:"تیز", medium:"متوسط", soft:"نرم (پیشفرض)" };
 
-const NAT64 = {
-  nl:{code:"NL",label:"هلند",prefix:"2a02:898:146:64::"},
-  us1:{code:"US-1",label:"آمریکا ۱",prefix:"2602:fc59:b0:64::"},
-  us2:{code:"US-2",label:"آمریکا ۲",prefix:"2602:fc59:11:64::"}
-};
 const ROUTES = [
   {k:"main",label:"پیشفرض — هوشمند"},
   {k:"proxy",label:"ProxyIP (فقط رله)"},
   {k:"direct",label:"مستقیم"},
-  {k:"nl",label:"NAT64 هلند"},
-  {k:"us1",label:"NAT64 آمریکا ۱"},
-  {k:"us2",label:"NAT64 آمریکا ۲"}
 ];
-const PING_TARGETS = [["1.1.1.1",443],["8.8.8.8",53]];
 
 const SEC_HEADERS = {
   'X-Content-Type-Options': "nosniff",
@@ -548,12 +539,6 @@ function cleanSplit(s) {
   if (i < 0) return { host: s, port: 443 };
   return { host: s.slice(0, i), port: parseInt(s.slice(i + 1)) || 443 };
 }
-function ipv4ToNat64(prefix, ipv4) {
-  const p = ipv4.split(".").map(Number);
-  if (p.length !== 4 || p.some(n => isNaN(n) || n < 0 || n > 255)) return null;
-  const g = (h, l) => ((h << 8) | l).toString(16);
-  return prefix + g(p[0], p[1]) + ":" + g(p[2], p[3]);
-}
 function parsePortList(str, allowed, fallback) {
   let arr = [];
   if (typeof str === "string") arr = str.split(",").map(x => parseInt(x.trim()));
@@ -757,15 +742,6 @@ async function tcpPing(hostname, port) {
     try { if (sock) sock.close(); } catch {}
     return { ok: false, ms: Date.now() - t0 };
   }
-}
-async function nat64Probe(prefix) {
-  for (const [ip, port] of PING_TARGETS) {
-    const host = ipv4ToNat64(prefix, ip);
-    if (!host) continue;
-    const r = await tcpPing(host, port);
-    if (r.ok) return { ok: true, ms: r.ms, via: host };
-  }
-  return { ok: false, ms: PING_TIMEOUT * PING_TARGETS.length, via: null };
 }
 const gwLat = new Map();
 const setGwLat = (k, r) => gwLat.set(k, { ok: r.ok, ms: r.ms, at: Date.now() });
@@ -1193,8 +1169,6 @@ function mergeDefaults(s) {
         }).slice(0, MAX_RELAYS)
       : [],
     proxyEnabled: s.proxyEnabled !== false,
-    nat64Enabled: s.nat64Enabled === true,
-    nat64Prefix: NAT64[s.nat64Prefix] ? s.nat64Prefix : "nl",
     cleanIPs: (Array.isArray(s.cleanIPs) && s.cleanIPs.length)
       ? s.cleanIPs.filter(x => typeof x === "string" && isValidClean(x) && x.length <= 253).slice(0, MAX_CLEAN_IPS)
       : DEFAULT_CLEAN_LIST(),
@@ -1386,7 +1360,7 @@ async function botReport(env, kind) {
   if (kind === "rt") {
     const t = await getIpTests(env);
     const okN = Object.values(t).filter(x => x.ok).length;
-    return `🌐 <b>مسیرها</b>\n━━━━━━━━━━━━━━\n▪ NAT64: <b>${cfg.nat64Enabled ? NAT64[cfg.nat64Prefix].code : 'خاموش'}</b>\n▪ ProxyIP: <b>${cfg.proxyEnabled ? (cfg.proxyIP || '—') : 'خاموش'}</b>\n▪ IP تمیز: <b>${cfg.cleanIPs.length}</b> (سالم: <b>${okN}</b>)`;
+    return `🌐 <b>مسیرها</b>\n━━━━━━━━━━━━━━\n▪ ProxyIP: <b>${cfg.proxyEnabled ? (cfg.proxyIP || '—') : 'خاموش'}</b>\n▪ IP تمیز: <b>${cfg.cleanIPs.length}</b> (سالم: <b>${okN}</b>)`;
   }
   return "؟";
 }
@@ -1665,8 +1639,6 @@ const prs = cfg.proxyEnabled
 const pr = prs[0] || null;
 
   /* ═══ هر مسیر دقیقاً یک کار می‌کند — بدون قاطی شدن مسیرها ═══
-     قبلاً NAT64 و ProxyIP و مستقیم همگی با هم در مسابقه می‌افتادند و
-     هرکدام زودتر جواب می‌دادند برنده می‌شدند. نتیجه: کاربر مسیر NAT64 را
      می‌زد ولی ترافیک از ProxyIP یا مستقیم می‌رفت. حالا هر مسیر = یک مسیر. */
 
   /* ── ۱) مستقیم: فقط اتصال مستقیم، هیچ رله‌ای وارد مسابقه نمی‌شود ── */
@@ -1689,25 +1661,9 @@ const pr = prs[0] || null;
     return out;
   }
 
-  /* ── ۳) NAT64: فقط gateway نات‌۶۴، بدون رله و بدون مستقیم ── */
-  if (NAT64[mode]) {
-    let ip4 = isIPv4(addr) ? addr : null;
-    if (!ip4 && isDomain(addr)) {
-    const ips = await resolveHost(addr);
-    ip4 = ips.slice().sort((a,b) => endpointScore(a) - endpointScore(b))[0] || null;
-  }
-    if (ip4 && !gwDead("n:" + mode)) {
-      const n64 = ipv4ToNat64(NAT64[mode].prefix, ip4);
-      if (n64) out.push({ t: { hostname: n64, port }, key: "n:" + mode });
-    }
-    if (!out.length) out.push({ t: { hostname: addr, port }, key: null });
-    return out;
-  }
-
-  /* ── ۴) پیشفرض: مسیر هوشمند.
+  /* ── ۳) پیشفرض: مسیر هوشمند.
      • مقصد رنج کلادفلر → اول رله، و اگر رله نبود مستقیم
-     • مقصد غیرکلادفلر (گوگل/یوتیوب) → مستقیم
-     • NAT64 سراسری فقط وقتی خودش کار کند وارد می‌شود ── */
+     • مقصد غیرکلادفلر (گوگل/یوتیوب) → مستقیم ── */
   let ip4 = isIPv4(addr) ? addr : null;
   if (!ip4 && isDomain(addr)) {
     const ips = await resolveHost(addr);
@@ -1723,10 +1679,6 @@ const pr = prs[0] || null;
       .slice(0, RELAY_FANOUT);
     for (const r of (live.length ? live : prs.slice(0, 1)))
       out.push({ t: { hostname: r.host, port: r.port }, key: "p:" + r.host });
-  }
-  if (cfg.nat64Enabled && ip4 && !gwDead("n:" + cfg.nat64Prefix)) {
-    const n64 = ipv4ToNat64(NAT64[cfg.nat64Prefix].prefix, ip4);
-    if (n64) out.push({ t: { hostname: n64, port }, key: "n:" + cfg.nat64Prefix });
   }
   out.push({ t: { hostname: addr, port }, key: null });
   return out;
@@ -2373,7 +2325,7 @@ function clientVariants(cfg, c, host, mainOnly = false) {
 }
 function subBase64(links) { return b64encode(links.join("\n")); }
 function routeLabel(k) {
-  const m = { main: "پیشفرض", proxy: "ProxyIP", direct: "مستقیم", nl: "NAT64 هلند", us1: "NAT64 آمریکا ۱", us2: "NAT64 آمریکا ۲" };
+  const m = { main: "پیشفرض", proxy: "ProxyIP", direct: "مستقیم" };
   return m[k] || k;
 }
 
@@ -3182,57 +3134,74 @@ input:checked+.slider:before{transform:translateX(22px);background:#fff}
   .hub-item .hub-qr{display:none}
 }
 
-/* ── ۱۱) تمใหม่ Aurora 2026 — جایگزینی کامل نمای پنل ───────────────── */
+/* ── ۱۱) تم مینیمال و نرم — بدون بنفش / نئون ─────────────────────── */
 :root{
-  --bg:#070b1a;--card:rgba(15,23,48,.74);--card2:rgba(30,41,80,.5);
-  --border:rgba(34,211,238,.16);--text:#e9f0ff;--dim:#9fb0d8;--muted:#7184af;
-  --accent:#22d3ee;--accent2:#818cf8;--success:#34d399;--danger:#fb7185;--warn:#fbbf24;
-  --glow:rgba(34,211,238,.22);--glow2:rgba(129,140,248,.16);
-  --shadow:0 20px 55px rgba(2,6,23,.55);--tb:rgba(9,14,32,.72);
-  --r:20px;--ri:14px;--rp:11px;
+  --bg:#f5f6f7;--card:rgba(255,255,255,.94);--card2:rgba(236,239,242,.55);
+  --border:#e2e6ea;--text:#24282e;--dim:#606872;--muted:#949ba5;
+  --accent:#5b7083;--accent2:#7f93a3;--success:#4e9b77;--danger:#c4696b;--warn:#bf9550;
+  --glow:rgba(91,112,131,.09);--glow2:rgba(127,147,163,.07);
+  --shadow:0 10px 30px rgba(24,32,44,.06);--tb:rgba(255,255,255,.86);
+  --r:14px;--ri:10px;--rp:8px;
 }
 html[data-theme='light']{
-  --bg:#f2f6ff;--card:rgba(255,255,255,.82);--card2:rgba(226,235,255,.6);
-  --border:rgba(79,70,229,.14);--text:#141a35;--dim:#4d5b86;--muted:#6b78a1;
-  --glow:rgba(79,70,229,.14);--glow2:rgba(34,211,238,.12);
-  --shadow:0 16px 42px rgba(79,70,229,.13);--tb:rgba(255,255,255,.72);
+  --bg:#f5f6f7;--card:rgba(255,255,255,.94);--card2:rgba(236,239,242,.55);
+  --border:#e2e6ea;--text:#24282e;--dim:#606872;--muted:#949ba5;
+  --glow:rgba(91,112,131,.09);--glow2:rgba(127,147,163,.07);
+  --shadow:0 10px 30px rgba(24,32,44,.06);--tb:rgba(255,255,255,.86);
 }
-html[data-accent='violet']{--accent:#22d3ee;--accent2:#818cf8;--glow:rgba(34,211,238,.22);--glow2:rgba(129,140,248,.16);--border:rgba(34,211,238,.18)}
-body{letter-spacing:.005em;background-image:linear-gradient(rgba(255,255,255,.014) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.014) 1px,transparent 1px);background-size:44px 44px}
-html[data-theme='light'] body{background-image:linear-gradient(rgba(79,70,229,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(79,70,229,.045) 1px,transparent 1px)}
-.bg .n1{background:radial-gradient(circle,rgba(34,211,238,.2),transparent 65%);top:-26vw;left:-18vw}
-.bg .n2{background:radial-gradient(circle,rgba(129,140,248,.22),transparent 65%);bottom:-22vw;right:-16vw}
-.main{gap:1.1rem;padding:1.15rem 1.7rem 3.5rem}
-.sbar{width:236px;background:linear-gradient(180deg,var(--tb),rgba(9,14,32,.45));border-left:1px solid var(--border)}
-.sb-brand .mark{border-radius:18px;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 10px 30px var(--glow);font-size:1.5rem}
-.sb-nav button{border-radius:14px;margin-bottom:.2rem;min-height:50px}
-.sb-nav button.active{background:linear-gradient(120deg,var(--glow),var(--glow2));border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent),0 8px 24px var(--glow)}
-.topbar{border-radius:18px;background:var(--tb);box-shadow:var(--shadow)}
-.card{background:linear-gradient(160deg,var(--card),var(--card2));border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.05);transition:transform .35s cubic-bezier(.2,.8,.2,1),box-shadow .35s,border-color .35s}
-.card:hover{transform:translateY(-3px);border-color:var(--accent);box-shadow:0 26px 64px var(--glow)}
-.card::before{content:'';display:block;height:3px;width:52px;border-radius:0 0 6px 6px;background:linear-gradient(90deg,var(--accent),var(--accent2));margin:-1.6rem -1.6rem 1.3rem;opacity:.85}
-.vhead h2{font-size:1.05rem;letter-spacing:-.01em}
-.btn{border-radius:13px;box-shadow:0 6px 18px var(--glow)}
-.btn:hover{transform:translateY(-2px);box-shadow:0 12px 30px var(--glow)}
-.btn.ghost,.btn.danger{box-shadow:none}
-.icon-btn,.tbtn{border-radius:12px}
-.st-v{font-size:1.5rem;font-weight:900;background:linear-gradient(120deg,var(--text),var(--accent));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.stat{background:linear-gradient(140deg,var(--card2),transparent);border-radius:var(--ri)}
-.si{border-radius:13px;background:var(--glow);color:var(--accent)}
-.rl-row{border-radius:12px;transition:transform .18s,background .18s,border-color .18s,box-shadow .18s}
-.rl-row:hover{transform:translateY(-2px);border-color:var(--accent);box-shadow:0 6px 18px var(--glow)}
-.rl-row.on{background:linear-gradient(120deg,var(--glow),var(--glow2));border-color:var(--accent)}
-.cl-row,.cfg-item{border-radius:var(--ri);transition:border-color .2s,box-shadow .2s}
-.cl-row:hover,.cfg-item:hover{border-color:var(--accent);box-shadow:0 8px 24px var(--glow)}
-.tag{padding:.2rem .7rem;border-radius:999px}
-.input,.select,textarea.input{border-radius:12px;transition:border-color .25s,box-shadow .25s,background .25s}
-.lang-sel,.theme-pil{border-radius:999px}
-::-webkit-scrollbar{width:9px;height:9px}
-::-webkit-scrollbar-thumb{background:linear-gradient(var(--accent),var(--accent2));border-radius:9px}
+html[data-theme='dark']{
+  --bg:#181b1f;--card:rgba(36,40,46,.94);--card2:rgba(52,57,65,.5);
+  --border:#343a42;--text:#e6e8ea;--dim:#a7aeb7;--muted:#7b838d;
+  --accent:#9bb0c0;--accent2:#b6c4cf;--glow:rgba(155,176,192,.1);--glow2:rgba(182,196,207,.07);
+  --shadow:0 12px 34px rgba(0,0,0,.22);--tb:rgba(28,31,36,.88);
+}
+html[data-accent='violet']{--accent:#5b7083;--accent2:#7f93a3;--glow:rgba(91,112,131,.09);--glow2:rgba(127,147,163,.07);--border:#e2e6ea}
+html[data-theme='dark'][data-accent='violet']{--accent:#9bb0c0;--accent2:#b6c4cf;--glow:rgba(155,176,192,.1);--border:#343a42}
+body{background-image:none;letter-spacing:0;line-height:1.75}
+.bg .neb{opacity:.16;filter:blur(110px)}
+.bg .n1{background:#c9d2da}.bg .n2{background:#d7dde2}
+.bg .stars{opacity:.18;background-image:radial-gradient(rgba(120,130,145,.3) 1px,transparent 1.4px);animation:none}
+.veil{background:rgba(245,246,247,.28)}
+html[data-theme='dark'] .veil{background:rgba(24,27,31,.28)}
+.main{gap:1rem;padding:1.1rem 1.5rem 3rem}
+.sbar{width:238px;background:var(--tb);backdrop-filter:none}
+.sb-brand .mark{background:var(--accent);box-shadow:none;animation:none;border-radius:12px}
+.sb-brand h1 i{background:none;-webkit-text-fill-color:currentColor;color:var(--dim)}
+.sb-nav button{border-radius:9px;font-weight:600;min-height:46px}
+.sb-nav button.active{background:var(--card2);border-color:var(--border);border-right:2px solid var(--accent);box-shadow:none}
+.topbar{border-radius:12px;box-shadow:var(--shadow);backdrop-filter:none}
+.topbar .tb-brand .mark{background:var(--accent);box-shadow:none}
+.card{border-radius:var(--r);box-shadow:var(--shadow);transition:border-color .2s}
+.card:hover{transform:none;box-shadow:var(--shadow)}
+.card::before{display:none}
+.vhead h2{font-weight:700}
+.btn{border-radius:9px;background:var(--accent);animation:none;box-shadow:none;font-weight:600}
+.btn:hover{transform:none;opacity:.9;box-shadow:none}
+.btn.ghost,.btn.danger{background:var(--card2);box-shadow:none}
+.icon-btn,.tbtn{border-radius:9px;box-shadow:none}
+.icon-btn:hover,.tbtn:hover{transform:none;box-shadow:none}
+.input,.select,textarea.input{border-radius:9px}
+.input:focus,.select:focus,textarea.input:focus{box-shadow:0 0 0 3px var(--glow)}
+.stat .si,.vhead .ci,.cl-av{background:var(--card2);color:var(--accent)}
+.st-v{background:none;-webkit-text-fill-color:currentColor;color:var(--text);font-size:1.35rem}
+.tag{padding:.15rem .6rem;border-radius:6px;background:var(--card2)}
+.rl-row,.cl-row,.cfg-item{border-radius:9px}
+.rl-row:hover,.cl-row:hover,.cfg-item:hover{transform:none;box-shadow:none;border-color:var(--accent)}
+.rl-row.on{background:var(--card2);border-color:var(--accent)}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:#c3c9d0;border-radius:8px}
+html[data-theme='dark'] ::-webkit-scrollbar-thumb{background:#4b525b}
 ::-webkit-scrollbar-track{background:transparent}
-@keyframes pageIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-section[id^=page-]:not(.hidden)>*{animation:pageIn .4s ease both}
-@media(max-width:900px){.card{padding:1.1rem}.card::before{margin:-1.1rem -1.1rem 1rem}.main{padding:1rem .8rem 6.5rem}.vhead h2{font-size:1rem}}
+@keyframes pageIn{from{opacity:0}to{opacity:1}}
+section[id^=page-]:not(.hidden)>*{animation:pageIn .25s ease both}
+.lang-sel{position:relative}
+.lang-btn{display:inline-flex;align-items:center;gap:.35rem;padding:.45rem .7rem;border-radius:9px;border:1px solid var(--border);background:var(--card2);color:var(--dim);cursor:pointer;font:inherit;font-size:.78rem;min-height:40px}
+.lang-btn:hover{color:var(--text)}
+.lang-menu{position:absolute;top:calc(100% + 6px);left:0;min-width:130px;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);padding:.3rem;display:none;z-index:60}
+.lang-menu.open{display:block}
+.lang-menu button{display:block;width:100%;text-align:right;padding:.5rem .7rem;border:0;border-radius:7px;background:none;color:var(--dim);cursor:pointer;font:inherit;font-size:.82rem}
+.lang-menu button:hover,.lang-menu button.on{background:var(--card2);color:var(--accent)}
+@media(max-width:900px){.card{padding:1.1rem}.card::before{display:none}.main{padding:1rem .8rem 6.5rem}}
 `;
 
 /* ════════════════ 14) head مشترک ════════════════ */
@@ -3246,7 +3215,7 @@ function effectiveBg(cfg) {
 function headHTML(cfg, title) {
   const bg = effectiveBg(cfg);
   const bgCSS = bg.dark ? `<style>html[data-theme='dark'] body.has-bg .bg{background-image:url('${bg.dark}')}html[data-theme='light'] body.has-bg .bg{background-image:url('${bg.light || bg.dark}')}</style>` : '';
-  return `<!DOCTYPE html><html lang="fa" dir="rtl" data-theme="dark" data-accent="${esc(cfg.accent || 'violet')}" data-font="${esc(cfg.fontChoice || 'vazir')}" data-fs="${esc(cfg.fontScale || 'n')}" data-corner="${esc(cfg.corner || 'soft')}"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${CSS}</style>${bgCSS}</head>`;
+  return `<!DOCTYPE html><html lang="fa" dir="rtl" data-theme="light" data-accent="${esc(cfg.accent || 'violet')}" data-font="${esc(cfg.fontChoice || 'vazir')}" data-fs="${esc(cfg.fontScale || 'n')}" data-corner="${esc(cfg.corner || 'soft')}"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${CSS}</style>${bgCSS}</head>`;
 }
 
 /* ════════════════ 15) JS مشترک صفحات ════════════════ */
@@ -3318,10 +3287,12 @@ var _RI = {
  zap:'<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
  globe:'<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
  search:'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+ image:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+ trash:'<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
  refresh:'<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>'
 };
 function svg(name,size){var p=_RI[name]||_RI.globe;return '<svg class="ic" width="'+(size||16)+'" height="'+(size||16)+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+p+'</svg>';}
-function routeLabel(k){var m={main:'پیشفرض',proxy:'ProxyIP',direct:'مستقیم',nl:'NAT64 هلند',us1:'NAT64 آمریکا ۱',us2:'NAT64 آمریکا ۲'};return m[k]||k;}
+function routeLabel(k){var m={main:'پیشفرض',proxy:'ProxyIP',direct:'مستقیم'};return m[k]||k;}
 function clientById(id){for(var i=0;i<RIX.clients.length;i++)if(RIX.clients[i].id===id)return RIX.clients[i];return null;}
 function clientExpiredJS(c){
 if(!c||!c.expiryDays||!c.created)return false;
@@ -3466,7 +3437,7 @@ if(el&&r.ok)el.textContent=(r.bytes/1073741824).toFixed(2)+' GB';
 }catch(e){}}
 function openClientModal(id){
 var c=id?clientById(id):null;
-var routes=[['main','پیشفرض — هوشمند (کلادفلر→رله، بقیه→مستقیم)'],['proxy','ProxyIP (رله) — فقط رله'],['direct','مستقیم — بدون رله'],['nl','NAT64 هلند — فقط هلند'],['us1','NAT64 آمریکا ۱ — فقط آمریکا۱'],['us2','NAT64 آمریکا ۲ — فقط آمریکا۲']];
+var routes=[['main','پیشفرض — هوشمند']];
 var opts='';
 for(var i=0;i<routes.length;i++)opts+='<option value="'+routes[i][0]+'"'+((c?c.country:'main')===routes[i][0]?' selected':'')+'>'+routes[i][1]+'</option>';
 openModal(
@@ -3540,13 +3511,41 @@ var fs=document.getElementById('s-font');if(fs)fs.value=RIX.s.fontChoice;
 var fz=document.getElementById('s-fs');if(fz)fz.value=RIX.s.fontScale;
 var cr=document.getElementById('s-corner');if(cr)cr.value=RIX.s.corner;}
 function applyBg(){
-var d=RIX.s.bgDarkUrl||'',l=RIX.s.bgLightUrl||'';
+var d=RIX.s.bgDarkKv?'/bg/dark':(RIX.s.bgDarkUrl||'');
+var l=RIX.s.bgLightKv?'/bg/light':(RIX.s.bgLightUrl||'');
 var has=!!(d||l);
 document.body.classList.toggle('has-bg',has);
 var bg=document.querySelector('.bg');if(!bg)return;
-var cur=document.documentElement.dataset.theme==='light'?(l||d):d;
-if(cur){bg.style.backgroundImage="url('"+cur.replace(/'/g,'%27')+"')";}
-else bg.style.backgroundImage='';}
+var light=document.documentElement.dataset.theme==='light';
+var cur=light?(l||d):(d||l);
+bg.style.backgroundImage=cur?"url('"+cur.replace(/'/g,'%27')+"')":'';
+var fd=document.getElementById('bgFileDark');if(fd&&RIX.s.bgDarkKv)fd.dataset.on='1';
+var fl=document.getElementById('bgFileLight');if(fl&&RIX.s.bgLightKv)fl.dataset.on='1';}
+async function uploadBgFile(input,slot){
+var f=input.files&&input.files[0];if(!f)return;
+if(f.size>2*1024*1024){toast('عکس باید کوچکتر از ۲ مگابایت باشد',false);input.value='';return;}
+var rd=new FileReader();
+rd.onload=async function(){
+  try{
+    var r=await api('uploadBg',{slot:slot,data:String(rd.result)});
+    if(!r.ok){toast(r.err||'آپلود نشد',false);return;}
+    if(slot==='dark'){RIX.s.bgDarkKv=true;RIX.s.bgDarkUrl='/bg/dark';var d=document.getElementById('s-bgdark');if(d)d.value='/bg/dark';}
+    else{RIX.s.bgLightKv=true;RIX.s.bgLightUrl='/bg/light';var l=document.getElementById('s-bglight');if(l)l.value='/bg/light';}
+    applyBg();toast('عکس پسزمینه ذخیره شد ✓',true);
+  }catch(e){}
+};
+rd.readAsDataURL(f);
+input.value='';
+}
+async function removeBg(slot){
+try{
+  var r=await api('deleteBg',{slot:slot});
+  if(!r.ok){toast(r.err||'خطا',false);return;}
+  if(slot==='dark'){RIX.s.bgDarkKv=false;RIX.s.bgDarkUrl='';var d=document.getElementById('s-bgdark');if(d)d.value='';}
+  else{RIX.s.bgLightKv=false;RIX.s.bgLightUrl='';var l=document.getElementById('s-bglight');if(l)l.value='';}
+  applyBg();toast('عکس پسزمینه حذف شد',true);
+}catch(e){}
+}
 function bgOk(u){if(!u)return false;if(u==='/bg/dark'||u==='/bg/light')return true;
 if(!/^https:\\/\\/[\\x21-\\x7E]+$/.test(u))return false;
 return !/['"();<>\\\\{}]/.test(u);}
@@ -3608,8 +3607,6 @@ document.getElementById('s-nontls').checked=RIX.s.nonTLSEnabled;
 document.getElementById('s-nontlsports').value=RIX.s.nonTLSPorts.join(', ');
 document.getElementById('s-proxyip').value=RIX.s.proxyIP;
 document.getElementById('s-proxyon').checked=RIX.s.proxyEnabled;
-document.getElementById('s-nat64').checked=RIX.s.nat64Enabled;
-document.getElementById('s-nat64p').value=RIX.s.nat64Prefix;
 document.getElementById('s-vless').checked=RIX.s.vlessEnabled;
 document.getElementById('s-trojan').checked=RIX.s.trojanEnabled;
 document.getElementById('s-xhttp').checked=RIX.s.xhttpEnabled!==false;
@@ -3618,7 +3615,10 @@ syncXhttpUI();
 renderRelays();
 
 
-document.getElementById('s-cleanips').value=(RIX.s.cleanIPs||[]).join('\\n');
+var bdi=document.getElementById('s-bgdark'),bli=document.getElementById('s-bglight');
+  if(bdi)bdi.value=RIX.s.bgDarkKv?'/bg/dark':(RIX.s.bgDarkUrl||'');
+  if(bli)bli.value=RIX.s.bgLightKv?'/bg/light':(RIX.s.bgLightUrl||'');
+  document.getElementById('s-cleanips').value=(RIX.s.cleanIPs||[]).join('\\n');
 }
 /* ⚡ ذخیرهٔ خودکار — هر تغییر در تنظیمات بعد از ۹۰۰ms بی‌حرکتی خودکار ذخیره می‌شود.
    نیازی به زدن دکمه یا رفرش صفحه نیست. وضعیت بالای دکمه نشان می‌دهد چه شد. */
@@ -3665,8 +3665,6 @@ function collectSettings(){
   if(!RIX.s.nonTLSPorts.length)RIX.s.nonTLSPorts=[80];
   RIX.s.proxyIP=document.getElementById('s-proxyip').value.trim();
   RIX.s.proxyEnabled=document.getElementById('s-proxyon').checked;
-  RIX.s.nat64Enabled=document.getElementById('s-nat64').checked;
-  RIX.s.nat64Prefix=document.getElementById('s-nat64p').value;
   RIX.s.vlessEnabled=document.getElementById('s-vless').checked;
   RIX.s.trojanEnabled=document.getElementById('s-trojan').checked;
   RIX.s.xhttpEnabled=document.getElementById('s-xhttp').checked;
@@ -3676,8 +3674,13 @@ function collectSettings(){
      نباید بکگراند آپلودی را پاک کند. */
   var bdi=document.getElementById('s-bgdark'),bli=document.getElementById('s-bglight');
   var bd=bdi?bdi.value.trim():'',bl=bli?bli.value.trim():'';
-  if(bd)RIX.s.bgDarkUrl=(bd==='/bg/dark')?'':bd;
-  if(bl)RIX.s.bgLightUrl=(bl==='/bg/light')?'':bl;
+  if(bd==='/bg/dark'){RIX.s.bgDarkKv=true;RIX.s.bgDarkUrl='/bg/dark';}
+  else if(!bd){RIX.s.bgDarkUrl='';RIX.s.bgDarkKv=false;}
+  else if(bgOk(bd)){RIX.s.bgDarkUrl=bd;RIX.s.bgDarkKv=false;}
+  if(bl==='/bg/light'){RIX.s.bgLightKv=true;RIX.s.bgLightUrl='/bg/light';}
+  else if(!bl){RIX.s.bgLightUrl='';RIX.s.bgLightKv=false;}
+  else if(bgOk(bl)){RIX.s.bgLightUrl=bl;RIX.s.bgLightKv=false;}
+  applyBg();
   RIX.s.cleanIPs=document.getElementById('s-cleanips').value.split('\\n').map(function(s){return s.trim();}).filter(Boolean);
   return RIX.s;
 }
@@ -3935,6 +3938,7 @@ applyPersona();applyBg();fillSettings();renderAll();watchAutoSave();
        گرهٔ متنی مستقیم عوض میشود و آیکونها دستنخورده میمانند.
     ۳) لیست کلاینتها/رلهها که بعد از لود ساخته میشوند ترجمه نمیشدند. حالا
        بعد از هر تغییر زبان، renderAll + renderRelays دوباره اجرا میشود. */
+function toggleLangMenu(){var m=document.getElementById('langMenu');if(m)m.classList.toggle('open');}
 function setLang(code){
   var dict = RIX.I18N[code]; if(!dict) return;
   RIX.lang = code;
@@ -3956,8 +3960,10 @@ function setLang(code){
     if(textNode) textNode.nodeValue = tr;
     else el.insertBefore(document.createTextNode(tr), el.firstChild);
   }
-  var bs = document.querySelectorAll('#langSel button');
+  var bs = document.querySelectorAll('#langMenu button');
   for(var j=0;j<bs.length;j++) bs[j].classList.toggle('on', bs[j].getAttribute('data-lang')===code);
+  var cur=document.getElementById('langCur'); if(cur)cur.textContent=code.toUpperCase();
+  var menu=document.getElementById('langMenu'); if(menu)menu.classList.remove('open');
   try{ renderAll(); renderRelays(); }catch(_e){}
 }
 function initLang(){
@@ -3970,8 +3976,9 @@ function initLang(){
 addEventListener('click', function(e){
   var t = e.target;
   if(!t || !t.closest) return;
-  var lb = t.closest('#langSel button');
+  var lb = t.closest('#langMenu button');
   if(lb){ setLang(lb.getAttribute('data-lang')); return; }
+  if(!t.closest('#langSel')){ var m=document.getElementById('langMenu'); if(m)m.classList.remove('open'); }
 });
 })();
 `;
@@ -4018,7 +4025,6 @@ function renderPanel(cfg, host, ipTests) {
       ipv6Enabled: false,      proxyRelays: cfg.proxyRelays,
       tlsPorts: cfg.tlsPorts, nonTLSEnabled: cfg.nonTLSEnabled, nonTLSPorts: cfg.nonTLSPorts,
       proxyIP: cfg.proxyIP, proxyEnabled: cfg.proxyEnabled,
-      nat64Enabled: cfg.nat64Enabled, nat64Prefix: cfg.nat64Prefix,
       bgDarkUrl: bg.dark, bgLightUrl: bg.light,
       bgDarkKv: cfg.bgDarkKv, bgLightKv: cfg.bgLightKv,
       accent: cfg.accent, fontChoice: cfg.fontChoice, fontScale: cfg.fontScale, corner: cfg.corner
@@ -4075,11 +4081,14 @@ function renderPanel(cfg, host, ipTests) {
 <header class="topbar"><div class="tb-brand"><div class="mark">R</div><div class="tt"><b>RIX PANEL</b><small>هسته Race — سریعترین مسیر خودکار</small></div></div>
 <div class="tb-actions">
 <div class="theme-pil" onclick="toggleTheme()" role="button" aria-label="تغییر تم"><div class="tp on" data-t="dark">${moonSvg}</div><div class="tp" data-t="light">${sunSvg}</div></div>
- <div class="lang-sel" id="langSel" role="group" aria-label="Language">
-   <button type="button" data-lang="fa" class="on" title="فارسی">فارسی</button>
-   <button type="button" data-lang="en" title="English">EN</button>
-   <button type="button" data-lang="zh" title="中文">中文</button>
- </div>
+ <div class="lang-sel" id="langSel">
+    <button type="button" class="lang-btn" id="langBtn" onclick="toggleLangMenu()" aria-label="زبان" title="زبان">${svg('globe',16)}<span id="langCur">FA</span><svg class="ic" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
+    <div class="lang-menu" id="langMenu">
+      <button type="button" data-lang="fa">فارسی</button>
+      <button type="button" data-lang="en">English</button>
+      <button type="button" data-lang="zh">中文</button>
+    </div>
+  </div>
  <a class="tbtn" href="/logout">${svg('logout',15)} <span data-i18n="خروج">خروج</span></a>
 </div></header>
 
@@ -4091,7 +4100,7 @@ function renderPanel(cfg, host, ipTests) {
     <div class="card"><div class="stat"><div class="si">${svg('shield',20)}</div><div><div class="st-v" id="st-ports">443</div><div class="st-l" data-i18n="پورتها">پورتها</div></div></div></div>
   </div>
   <div class="card mt"><div class="vhead"><h2 data-i18n="هسته Race — چطور کار میکند؟">هسته Race — چطور کار میکند؟</h2></div>
-    <div class="detail-row"><span class="k">هر اتصال، همه مسیرها (Direct/NAT64/ProxyIP) همزمان امتحان میشوند — سریعترین برنده است</span><span class="v">⚡</span></div>
+    <div class="detail-row"><span class="k">هر اتصال، مسیرهای Direct و ProxyIP همزمان امتحان میشوند — سریعترین برنده است</span><span class="v">⚡</span></div>
     <div class="detail-row"><span class="k">یوتیوب و گوگل: مسیر Direct خودکار — کش DNS آنها فقط ۳۰ ثانیه</span><span class="v">▶️</span></div>
     <div class="detail-row"><span class="k">سایتهای کلادفلری: ProxyIP (اگر فعال باشد) در ریس شرکت میکند</span><span class="v">🔧</span></div>
     <div class="detail-row"><span class="k">تست سرعت: fast.com یا speed.cloudflare.com — انتظار واقعی ۵-۱۵ مگابیت/ثانیه</span><span class="v">📊</span></div>
@@ -4148,6 +4157,23 @@ function renderPanel(cfg, host, ipTests) {
     <div class="brow"><button class="btn" onclick="savePersona()">${svg('save',16)} ذخیره ظاهر</button></div>
   </div>
 
+  <div class="card mt"><div class="vhead"><span class="ci">${svg('image',17)}</span><h2>عکس پسزمینه</h2></div>
+    <p class="label">عکس آپلودشده در KV ذخیره میشود و جای آدرس را میگیرد. حداکثر ۲ مگابایت.</p>
+    <div class="grid g2">
+      <div><label class="label">آدرس عکس تیره</label><input class="input" id="s-bgdark" dir="ltr" placeholder="https://..."></div>
+      <div><label class="label">آدرس عکس روشن</label><input class="input" id="s-bglight" dir="ltr" placeholder="https://..."></div>
+    </div>
+    <div class="grid g2 mt">
+      <div><label class="label">آپلود عکس تیره</label><input class="input" type="file" id="bgFileDark" accept="image/png,image/jpeg,image/webp" onchange="uploadBgFile(this,'dark')"></div>
+      <div><label class="label">آپلود عکس روشن</label><input class="input" type="file" id="bgFileLight" accept="image/png,image/jpeg,image/webp" onchange="uploadBgFile(this,'light')"></div>
+    </div>
+    <div class="brow">
+      <button class="btn sm" onclick="saveSettings()">${svg('save',15)} ذخیره آدرسها</button>
+      <button class="btn sm ghost" onclick="removeBg('dark')">${svg('trash',15)} حذف عکس تیره</button>
+      <button class="btn sm ghost" onclick="removeBg('light')">${svg('trash',15)} حذف عکس روشن</button>
+    </div>
+  </div>
+
   <div class="card mt"><div class="vhead"><span class="ci">${svg('sliders',17)}</span><h2>پورتها و پروتکل‌ها</h2></div>
     <div class="grid g2">
       <div><label class="label">پورتهای TLS (از 443,2053,2083,2087,2096,8443)</label><input class="input" id="s-tlsports" dir="ltr" placeholder="443"></div>
@@ -4186,10 +4212,8 @@ function renderPanel(cfg, host, ipTests) {
         <div id="relayBox" class="mt"></div>
       </div>
       <div><label class="label">SNI جایگزین — فقط برای IPهای تمیز</label><input class="input" id="s-sni" placeholder="speed.cloudflare.com" dir="ltr"></div>
-      <div><label class="label">پیشوند NAT64</label><select class="select" id="s-nat64p">${Object.entries(NAT64).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select></div>
     </div>
     <div class="flex mt"><span class="label" style="margin:0">ProxyIP فعال (در ریس شرکت میکند)</span><span class="spacer"></span><label class="switch"><input type="checkbox" id="s-proxyon"><span class="slider"></span></label></div>
-    <div class="flex mt"><span class="label" style="margin:0">NAT64 فعال</span><span class="spacer"></span><label class="switch"><input type="checkbox" id="s-nat64"><span class="slider"></span></label></div>
     <div class="brow" style="margin-top:.5rem"><button class="btn sm ghost" onclick="testProxy()">${svg('zap',15)} 🧪 تست رله ProxyIP</button></div>
     <div id="proxyTestBox" class="mt"></div>
     <div class="mt">
@@ -4675,13 +4699,13 @@ async function handleRequest(request, env, ctx) {
         if (typeof body.bgDarkUrl === "string") {
           const v = body.bgDarkUrl.trim();
           if (v === "/bg/dark" && cfg.bgDarkKv) { /* آپلودی دست نمیخورد */ }
-          else if (!v) { cfg.bgDarkUrl = ''; }
+          else if (!v) { cfg.bgDarkUrl = ''; cfg.bgDarkKv = false; }
           else if (isSafeBgUrl(v)) { cfg.bgDarkUrl = v; cfg.bgDarkKv = false; }
         }
         if (typeof body.bgLightUrl === "string") {
           const v = body.bgLightUrl.trim();
           if (v === "/bg/light" && cfg.bgLightKv) { /* آپلودی دست نمیخورد */ }
-          else if (!v) { cfg.bgLightUrl = ''; }
+          else if (!v) { cfg.bgLightUrl = ''; cfg.bgLightKv = false; }
           else if (isSafeBgUrl(v)) { cfg.bgLightUrl = v; cfg.bgLightKv = false; }
         }
         cfg.tlsPorts = parsePortList(body.tlsPorts, TLS_PORTS_ALL, cfg.tlsPorts);
@@ -4696,8 +4720,6 @@ async function handleRequest(request, env, ctx) {
       cfg.proxyRelays = [...new Set(keep.map(function (x) { return x.trim(); }))];
     }
         if (typeof body.proxyEnabled === "boolean") cfg.proxyEnabled = body.proxyEnabled;
-        if (typeof body.nat64Enabled === "boolean") cfg.nat64Enabled = body.nat64Enabled;
-        if (NAT64[body.nat64Prefix]) cfg.nat64Prefix = body.nat64Prefix;
         if (typeof body.vlessEnabled === "boolean") cfg.vlessEnabled = body.vlessEnabled;
         if (typeof body.xhttpEnabled === "boolean") cfg.xhttpEnabled = body.xhttpEnabled;
         /* پروفایل pattng — سراسری. echConfigList از نظر شکل جدا اعتبارسنجی
@@ -4786,13 +4808,7 @@ async function handleRequest(request, env, ctx) {
         return json({ ok: true, results, okIPs, okCount: okIPs.length });
       }
       if (action === "selftest") {
-        const results = {};
-        for (const [k, v] of Object.entries(NAT64)) {
-          const r = await nat64Probe(v.prefix);
-          setGwLat(k, r);
-          results[k] = r;
-        }
-        return json({ ok: true, results, nat64: cfg.nat64Enabled, proxy: cfg.proxyEnabled });
+        return json({ ok: true, results: {}, proxy: cfg.proxyEnabled });
       }
       return json({ ok: false, err: "unknown" }, 404);
 
